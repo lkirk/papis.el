@@ -20,6 +20,12 @@
 
 ;;;; Customization
 
+(defconst papis--dist-dir
+	(file-name-directory (or load-file-name buffer-file-name)))
+
+(defvar papis--refs-to-bibtex-script
+	(concat papis--dist-dir "refs-to-bibtex.py"))
+
 (defgroup papis nil
   "Official Papis package for Emacs."
   :group 'external
@@ -57,6 +63,11 @@ When nil, use the default library configured in the Papis config."
   :type 'boolean
   :group 'papis)
 
+(defcustom papis-tangle-relative-file nil
+  "When non-nil, the bibtex file written by dblock is relative."
+  :type 'boolean
+  :group 'papis)
+
 (defcustom papis-completion-format-function
   #'papis-default-completion-format-function
   "Function taking a papis document (hashmap) and outputing a
@@ -64,15 +75,8 @@ When nil, use the default library configured in the Papis config."
   :type 'function
   :group 'papis)
 
-(defvar-keymap papis-command-map
-  :doc "Keymap for papis commands"
-  "a" #'papis-add
-  "b" #'papis-browse
-  "e" #'papis-edit
-  "n" #'papis-notes
-  "o" #'papis-open
-  "u" #'papis-cache-update
-  "x" #'papis-export-bibtex)
+;; bind it where you want
+(define-key org-mode-map (kbd "C-c p") #'papis-dispatch)
 
 (defcustom papis-after-open-note-functions
   #'papis-after-open-note-default
@@ -89,10 +93,32 @@ note templates."
 
 (defun papis-after-open-note-default (&optional _new)
   "Move point after the first occurence of \"TODO\" in the note."
-  (search-forward "TODO"
-                  nil ; Don't limit the search
-                  t   ; Don't error when not found
-                  ))
+  (search-forward "TODO" nil t))
+
+;; If transient is installed, define a transient dispatcher for
+;; papis commands
+(if (require 'transient nil 'noerror)
+		(transient-define-prefix papis-dispatch ()
+			"Papis"
+			[["Actions"
+				("a" "Add" papis-add)
+				("b" "Browse" papis-browse)
+				("e" "Edit" papis-edit)
+				("n" "Notes" papis-notes)
+				("o" "Open" papis-open)
+				("u" "Update cache" papis-cache-update)
+				("x" "Export Cited BibTeX Refs" papis-export-bibtex)
+				("g" "Export All (Global) BibTeX Refs" papis-export-global-bibtex)]])
+	(defvar-keymap papis-command-map
+		:doc "Keymap for papis commands"
+		"a" #'papis-add
+		"b" #'papis-browse
+		"e" #'papis-edit
+		"n" #'papis-notes
+		"o" #'papis-open
+		"u" #'papis-cache-update
+		"x" #'papis-export-bibtex
+		"g" #'papis-export-global-bibtex))
 
 ;;;; Functions to run Papis
 
@@ -309,10 +335,42 @@ link/ref at point or the current directory)."
         (papis--completing-read prompt docs default)
       (papis--completing-read "Choose document: " docs))))
 
+;; TODO: this searches all bibliography (global), not just keyword
+;;       either change functionality to reflect the docstring
+;;       or change the docstring. Could simply filter with:
+;;       (let* ((org-cite-global-bibliography nil)) ....)
+;;       perhaps we could let the user choose if they want to select
+;;       from global bib list?
+(defun papis--choose-bib-file ()
+	"Search the org document for the `#+bibliography' keyword.
+If 0 found, ask for one, if 1 use it, if multiple choose."
+  (let ((files
+				 (seq-filter
+					(lambda (e) (not (string= e papis-export-bibtex-file)))
+					(org-cite-list-bibliography-files))))
+    (pcase files
+      ('nil     (read-file-name "Bibliography file: "))
+	    (`(,file) file)
+	    (_        (completing-read "Choose bibliography file: " files nil t)))))
+
 ;;;; Public Papis commands
 
 ;;;###autoload
 (defun papis-export-bibtex (&optional bibfile)
+  "Export the Papis library to BIBFILE or to one specified by keyword or user.
+If BIBFILE is not defined, check `#+bibliography', then prompt if not found."
+  (interactive)
+  (let ((dest (or bibfile (papis--choose-bib-file)))
+				(refs (papis-org-list-keys)))
+    (with-temp-buffer
+      (insert
+			 (papis--refs-to-bibtex
+				(mapcar (lambda (r) (format "ref:\"%s\"" r)) refs)))
+      (write-file dest))))
+
+;;;###autoload
+;; This exports everything, we're only exporting cited.
+(defun papis-export-global-bibtex (&optional bibfile)
   "Export the Papis library to BIBFILE or to `papis-export-bibtex-file'."
   (interactive)
   (if-let* ((dest (or bibfile papis-export-bibtex-file)))
@@ -453,39 +511,25 @@ the whole cache."
 
 (defun papis--exec (python-file &optional arguments)
   (papis-check-program "0.12")
-  (papis--run-to-string (list "exec" python-file arguments)))
-
-(defvar papis--refs-to-bibtex-script
-"
-import argparse
-import papis.api
-from papis.bibtex import to_bibtex
-
-parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
-                                 description='')
-parser.add_argument('refs', help='References', action='store', nargs='*')
-args = parser.parse_args()
-
-docs = []
-
-for ref in args.refs:
-    docs.extend(papis.api.get_documents_in_lib(library=None, search=ref))
-
-for d in docs:
-    print(to_bibtex(d))
-")
+	;; set log to error to avoid log messages in bib output, may want to
+	;; consider only capturing stdout to avoid this
+  (papis--run-to-string
+	 (eval `(list "--log" "ERROR" "exec" ,python-file ,@arguments))))
 
 (defun papis--refs-to-bibtex (refs)
-  (let ((py-script (make-temp-file "papis-bibtex-script" nil ".py")))
-    (with-temp-buffer
-      (insert papis--refs-to-bibtex-script)
-      (write-file py-script))
-    (papis--exec py-script refs)))
+  (papis--exec papis--refs-to-bibtex-script refs))
 
+;; hm. tangling is not working.
 (defun papis-create-papis-bibtex-refs-dblock (bibfile)
-  (insert (format "#+begin: papis-bibtex-refs :tangle %s" bibfile))
+  (insert (format "#+begin: papis-bibtex-refs :exports none :tangle %s" bibfile))
   (insert "\n")
   (insert "#+end:"))
+
+(defun papis--read-file-name(prompt &optional default)
+	(let ((fname (read-file-name prompt nil default)))
+		(when papis-tangle-relative-file
+			(file-relative-name (expand-file-name fname)
+													(file-name-directory buffer-file-name)))))
 
 ;;;###autoload
 (defun papis-extract-citations-into-dblock (&optional bibfile)
@@ -495,21 +539,13 @@ for d in docs:
         (org-fold-show-entry)
         (org-update-dblock))
     (papis-create-papis-bibtex-refs-dblock
-     (or bibfile (read-file-name "Bib file: " nil "main.bib")))))
+     (or bibfile (papis--read-file-name "Bib file: " "main.bib")))))
 
 (defun org-dblock-write:papis-bibtex-refs (params)
-  (let ((tangle-file (or (plist-get params :tangle)
-                         (buffer-file-name)))
-        (exports ":exports none"))
-    (insert
-     (format "#+begin_src bibtex %s :tangle %s\n"
-             exports
-             tangle-file)))
   (let* ((refs (papis-org-list-keys))
          (queries (mapcar (lambda (r) (format "ref:\"%s\"" r))
                           refs)))
-    (insert (papis--refs-to-bibtex queries)))
-  (insert "#+end_src\n"))
+    (insert (papis--refs-to-bibtex queries))))
 
 (provide 'papis)
 
