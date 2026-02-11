@@ -17,6 +17,7 @@
 (require 'ol)
 (require 'org-element)
 (require 'json)
+(require 'transient)
 
 ;;;; Customization
 
@@ -97,28 +98,17 @@ note templates."
 
 ;; If transient is installed, define a transient dispatcher for
 ;; papis commands
-(if (require 'transient nil 'noerror)
-		(transient-define-prefix papis-dispatch ()
-			"Papis"
-			[["Actions"
-				("a" "Add" papis-add)
-				("b" "Browse" papis-browse)
-				("e" "Edit" papis-edit)
-				("n" "Notes" papis-notes)
-				("o" "Open" papis-open)
-				("u" "Update cache" papis-cache-update)
-				("x" "Export Cited BibTeX Refs" papis-export-bibtex)
-				("g" "Export All (Global) BibTeX Refs" papis-export-global-bibtex)]])
-	(defvar-keymap papis-command-map
-		:doc "Keymap for papis commands"
-		"a" #'papis-add
-		"b" #'papis-browse
-		"e" #'papis-edit
-		"n" #'papis-notes
-		"o" #'papis-open
-		"u" #'papis-cache-update
-		"x" #'papis-export-bibtex
-		"g" #'papis-export-global-bibtex))
+(transient-define-prefix papis-dispatch ()
+	"Papis command dispatcher."
+	[["Actions"
+		("a" "Add" papis-add)
+		("b" "Browse" papis-browse)
+		("e" "Edit" papis-edit)
+		("n" "Notes" papis-notes)
+		("o" "Open" papis-open)
+		("u" "Update cache" papis-cache-update)
+		("x" "Export Cited BibTeX Refs" papis-export-bibtex)
+		("g" "Export All (Global) BibTeX Refs" papis-export-global-bibtex)]])
 
 ;;;; Functions to run Papis
 
