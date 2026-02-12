@@ -7,52 +7,73 @@
 # $ nix-build papis.nix -A tests
 
 {
-  pkgs ? import <nixpkgs> {},
+  pkgs ? import <nixpkgs> { },
   papis ? null,
   emacsPackages ? null,
   el-mock ? null,
   with-simulated-input ? null,
-} @ args :
+}@args:
 let
   lib = pkgs.lib;
   papis = args.papis or pkgs.papis;
   emacsPackages = args.emacsPackages or pkgs.emacsPackages;
   trivialBuild = emacsPackages.trivialBuild;
   el-mock = args.el-mock or emacsPackages.el-mock;
-  with-simulated-input =
-    args.with-simulated-input or emacsPackages.with-simulated-input;
+  with-simulated-input = args.with-simulated-input or emacsPackages.with-simulated-input;
   papis-el =
-    trivialBuild {
+    (trivialBuild {
       pname = "papis";
       version = "current";
-      src = ./papis.el;
-    };
-  papis-test-el =
-    trivialBuild {
-      pname = "papis-test";
-      version = "current";
-      src = with lib.fileset; toSource {
+      src =
+        with lib.fileset;
+        toSource {
+          root = ./.;
+          fileset = union ./papis.el ./refs-to-bibtex.py;
+        };
+    }).overrideAttrs
+      (
+        self: super: {
+          postInstall = ''
+            cp $src/refs-to-bibtex.py $out/share/emacs/site-lisp
+          ''
+          + super.postInstall;
+        }
+      );
+  papis-test-el = trivialBuild {
+    pname = "papis-test";
+    version = "current";
+    src =
+      with lib.fileset;
+      toSource {
         root = ./test;
         fileset = union ./test/papis-test-common.el ./test/papis-test.el;
       };
-      packageRequires = [ papis-el el-mock with-simulated-input ];
-    };
+    packageRequires = [
+      papis-el
+      el-mock
+      with-simulated-input
+    ];
+  };
   example-lib = import ./example-lib.nix { inherit (lib) fileset; };
   run-papis-ert-tests =
-    pkgs.runCommand "run-papis-ert-tests" {
-      nativeBuildInputs = [ (emacsPackages.withPackages [ papis-test-el ]) papis ];
-    }
-    ''
-      cp --no-preserve=mode -r ${example-lib}/* ./ # Writable copy
-      export PAPIS_CONFIG_DIR=. # Without that, it doesn't try the given file
-      export XDG_CACHE_HOME=. # Put the Papis DB in the current build dir
-      emacs -q -batch -l ert -l papis-test \
-          --eval "(let ((ert-batch-print-level 10) \
-                        (ert-batch-print-length 120)) \
-                   (ert-run-tests-batch-and-exit))" |& tee $out
-    '';
-  papis-with-tests =
-    papis-el.overrideAttrs (finalAttrs: {
-      passthru.tests.run = run-papis-ert-tests;
-    });
-in papis-with-tests
+    pkgs.runCommand "run-papis-ert-tests"
+      {
+        nativeBuildInputs = [
+          (emacsPackages.withPackages [ papis-test-el ])
+          papis
+        ];
+      }
+      ''
+        cp --no-preserve=mode -r ${example-lib}/* ./ # Writable copy
+        export PAPIS_CONFIG_DIR=. # Without that, it doesn't try the given file
+        export XDG_CACHE_HOME=. # Put the Papis DB in the current build dir
+        emacs -q -batch -l ert -l papis-test \
+            --eval "(let ((ert-batch-print-level 10) \
+                          (ert-batch-print-length 120)) \
+                     (ert-run-tests-batch-and-exit))" |& tee $out
+      '';
+  papis-with-tests = papis-el.overrideAttrs (finalAttrs: {
+    passthru.tests.run = run-papis-ert-tests;
+  });
+in
+papis-with-tests
