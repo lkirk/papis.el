@@ -504,7 +504,7 @@ the whole cache."
 	;; set log to error to avoid log messages in bib output, may want to
 	;; consider only capturing stdout to avoid this
   (papis--run-to-string
-	 (eval `(list "--log" "ERROR" "exec" ,python-file ,@arguments))))
+	 (eval `(list "exec" ,python-file ,@arguments))))
 
 (defun papis--refs-to-bibtex (refs)
   (papis--exec papis--refs-to-bibtex-script refs))
