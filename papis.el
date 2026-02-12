@@ -76,8 +76,10 @@ When nil, use the default library configured in the Papis config."
   :type 'function
   :group 'papis)
 
-;; bind it where you want
-(define-key org-mode-map (kbd "C-c p") #'papis-dispatch)
+(defcustom papis-open-in-emacs t
+  "When non-nil open documents in Emacs, otherwise call 'papis open'."
+  :type 'boolean
+  :group 'papis)
 
 (defcustom papis-after-open-note-functions
   #'papis-after-open-note-default
