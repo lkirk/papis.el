@@ -364,7 +364,7 @@ If BIBFILE is not defined, check `#+bibliography', then prompt if not found."
   "Export the Papis library to BIBFILE or to `papis-export-bibtex-file'."
   (interactive)
   (if-let* ((dest (or bibfile papis-export-bibtex-file)))
-      (papis--run '("export" "--all" "--format" "bibtex")
+      (papis--run '("--log" "ERROR" "export" "--all" "--format" "bibtex")
                   (list :file dest))))
 
 ;;;###autoload
